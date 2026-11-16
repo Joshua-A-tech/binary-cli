@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "binary-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "A modular, provider-independent LLM command-line assistant."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,4 +32,4 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint.per-file-ignores]
-"src/binary_cli/main.py" = ["BLE001"]
+"src/binary_cli/main.py" = ["BLE001", "B008"]

@@ -9,6 +9,7 @@ from rich.table import Table
 from . import __version__
 from .config import Settings, load_settings
 from .core.chat import ChatSession
+from .core.context import build_context_prompt, get_git_diff
 from .core.history import clear_history, recent_messages
 from .providers.gemini_provider import GeminiProvider
 from .providers.ollama_provider import OllamaProvider
@@ -59,12 +60,16 @@ def root(ctx: typer.Context):
 
 @app.command()
 def chat(
+    file: list[Path] | None = typer.Option(
+        None, "--file", "-f", help="Attach local file(s) for conversation context."
+    ),
+    diff: bool = typer.Option(False, "--diff", "-d", help="Attach git diff as context."),
     provider: str | None = typer.Option(
         None, "--provider", "-p", help="Provider to use (openai, gemini, ollama)."
     ),
     model: str | None = typer.Option(None, "--model", "-m", help="Model name to use."),
 ):
-    """Start an interactive chat session."""
+    """Start an interactive chat session with optional file and git context."""
     try:
         settings = load_settings()
         active_provider_name = provider or settings.provider
@@ -76,8 +81,15 @@ def chat(
 
     banner(__version__)
     console.print(f"[dim]Provider: {active_provider_name} | Model: {active_model}[/dim]")
+    if file or diff:
+        attached = [f"`{p}`" for p in file] if file else []
+        if diff:
+            attached.append("git diff")
+        console.print(f"[dim]Context attached: {', '.join(attached)}[/dim]")
     console.print("[dim]Type /exit to quit. Type /clear to clear this session.[/dim]\n")
     session = ChatSession(provider_instance, active_model)
+
+    first_turn = True
 
     while True:
         try:
@@ -93,12 +105,18 @@ def chat(
             break
         if prompt.strip().lower() == "/clear":
             session = ChatSession(provider_instance, active_model)
+            first_turn = True
             console.print("[dim]Started a fresh conversation.[/dim]")
             continue
 
+        send_prompt = prompt
+        if first_turn and (file or diff):
+            send_prompt = build_context_prompt(prompt, files=file, include_diff=diff)
+            first_turn = False
+
         console.print("[bold green]Binary[/bold green] ", end="")
         try:
-            stream_to_terminal(session.send(prompt))
+            stream_to_terminal(session.send(send_prompt))
         except Exception as exc:
             console.print(f"\n[bold red]Request failed:[/bold red] {exc}")
 
@@ -106,20 +124,99 @@ def chat(
 @app.command()
 def ask(
     prompt: str = typer.Argument(..., help="Question or instruction for the model."),
+    file: list[Path] | None = typer.Option(
+        None, "--file", "-f", help="Attach local file(s) as context."
+    ),
+    diff: bool = typer.Option(False, "--diff", "-d", help="Attach local git diff as context."),
     provider: str | None = typer.Option(
         None, "--provider", "-p", help="Provider to use (openai, gemini, ollama)."
     ),
     model: str | None = typer.Option(None, "--model", "-m", help="Model name to use."),
 ):
-    """Send a single prompt to the configured model."""
+    """Send a single prompt to the model with optional file or git context."""
     try:
         settings = load_settings()
         active_provider_name = provider or settings.provider
         active_model = resolve_model(settings, active_provider_name, model)
         provider_instance = build_provider(settings, active_provider_name)
         session = ChatSession(provider_instance, active_model)
+        full_prompt = build_context_prompt(prompt, files=file, include_diff=diff)
         console.print("[bold green]Binary[/bold green] ", end="")
-        stream_to_terminal(session.send(prompt))
+        stream_to_terminal(session.send(full_prompt))
+    except Exception as exc:
+        console.print(f"[bold red]Request failed:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def review(
+    staged: bool = typer.Option(False, "--staged", "-s", help="Review staged changes only."),
+    provider: str | None = typer.Option(
+        None, "--provider", "-p", help="Provider to use (openai, gemini, ollama)."
+    ),
+    model: str | None = typer.Option(None, "--model", "-m", help="Model name to use."),
+):
+    """Perform an automated code review on current Git changes."""
+    diff_text = get_git_diff(staged_only=staged)
+    if not diff_text:
+        target = "staged" if staged else "working tree"
+        console.print(f"[yellow]No git changes detected in {target}. Nothing to review.[/yellow]")
+        return
+
+    instruction = (
+        "Please perform a thorough code review of the following Git changes. "
+        "Highlight potential bugs, security issues, performance concerns, "
+        "and suggestions for improvement. Be concise and actionable."
+    )
+    full_prompt = f"{diff_text}\n\n---\n\n{instruction}"
+
+    try:
+        settings = load_settings()
+        active_provider_name = provider or settings.provider
+        active_model = resolve_model(settings, active_provider_name, model)
+        provider_instance = build_provider(settings, active_provider_name)
+        session = ChatSession(provider_instance, active_model)
+        console.print("[bold green]Binary Code Review[/bold green]\n")
+        stream_to_terminal(session.send(full_prompt))
+    except Exception as exc:
+        console.print(f"[bold red]Review failed:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+
+@app.command("commit-msg")
+def commit_msg(
+    staged: bool = typer.Option(
+        True, "--staged/--all", help="Generate message from staged changes or all changes."
+    ),
+    provider: str | None = typer.Option(
+        None, "--provider", "-p", help="Provider to use (openai, gemini, ollama)."
+    ),
+    model: str | None = typer.Option(None, "--model", "-m", help="Model name to use."),
+):
+    """Generate a conventional commit message from Git changes."""
+    diff_text = get_git_diff(staged_only=staged)
+    if not diff_text and staged:
+        diff_text = get_git_diff(staged_only=False)
+    if not diff_text:
+        console.print("[yellow]No git changes detected to generate a commit message for.[/yellow]")
+        return
+
+    instruction = (
+        "Generate a concise Git commit message following the Conventional Commits specification "
+        "(e.g. feat:, fix:, docs:, refactor:, test:, chore:). "
+        "Provide a 1-line subject line, followed optionally by bulleted details if helpful. "
+        "Do not wrap the message in conversational preamble."
+    )
+    full_prompt = f"{diff_text}\n\n---\n\n{instruction}"
+
+    try:
+        settings = load_settings()
+        active_provider_name = provider or settings.provider
+        active_model = resolve_model(settings, active_provider_name, model)
+        provider_instance = build_provider(settings, active_provider_name)
+        session = ChatSession(provider_instance, active_model)
+        console.print("[bold green]Suggested Commit Message:[/bold green]\n")
+        stream_to_terminal(session.send(full_prompt))
     except Exception as exc:
         console.print(f"[bold red]Request failed:[/bold red] {exc}")
         raise typer.Exit(1)

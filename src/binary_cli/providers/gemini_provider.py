@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Iterator
 
 import httpx
@@ -6,7 +7,8 @@ import httpx
 from .base import LLMProvider, Message
 
 DEFAULT_GEMINI_MODELS = [
-    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
 ]
@@ -41,29 +43,41 @@ class GeminiProvider(LLMProvider):
         if system_parts:
             payload["system_instruction"] = {"parts": system_parts}
 
-        with httpx.stream(
-            "POST",
-            url,
-            params=params,
-            json=payload,
-            timeout=60.0,
-        ) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                line = line.strip()
-                if not line or not line.startswith("data: "):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with httpx.stream(
+                    "POST",
+                    url,
+                    params=params,
+                    json=payload,
+                    timeout=60.0,
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        raw_json = line.removeprefix("data: ").strip()
+                        if not raw_json:
+                            continue
+                        data = json.loads(raw_json)
+                        candidates = data.get("candidates", [])
+                        for candidate in candidates:
+                            parts = candidate.get("content", {}).get("parts", [])
+                            for part in parts:
+                                text = part.get("text")
+                                if text:
+                                    yield text
+                return
+            except httpx.HTTPStatusError as exc:
+                if (
+                    exc.response.status_code in {429, 500, 502, 503, 504}
+                    and attempt < max_retries - 1
+                ):
+                    time.sleep(1.5 * (attempt + 1))
                     continue
-                raw_json = line.removeprefix("data: ").strip()
-                if not raw_json:
-                    continue
-                data = json.loads(raw_json)
-                candidates = data.get("candidates", [])
-                for candidate in candidates:
-                    parts = candidate.get("content", {}).get("parts", [])
-                    for part in parts:
-                        text = part.get("text")
-                        if text:
-                            yield text
+                raise
 
     def list_models(self) -> list[str]:
         try:

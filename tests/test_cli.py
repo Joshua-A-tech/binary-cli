@@ -52,3 +52,74 @@ def test_cli_ask(monkeypatch):
     result = runner.invoke(app, ["ask", "Hello Binary"])
     assert result.exit_code == 0
     assert "Echo: Hello Binary" in result.stdout
+
+
+def test_cli_ask_with_file(tmp_path, monkeypatch):
+    test_file = tmp_path / "hello.py"
+    test_file.write_text("print('hi')", encoding="utf-8")
+
+    class FakeSession:
+        def __init__(self, provider, model):
+            pass
+
+        def send(self, prompt):
+            assert "hello.py" in prompt
+            assert "print('hi')" in prompt
+            yield "File analyzed."
+
+    monkeypatch.setattr("binary_cli.main.ChatSession", FakeSession)
+    monkeypatch.setattr("binary_cli.main.build_provider", lambda settings, p=None: None)
+
+    result = runner.invoke(app, ["ask", "Explain", "-f", str(test_file)])
+    assert result.exit_code == 0
+    assert "File analyzed." in result.stdout
+
+
+def test_cli_review_no_diff(monkeypatch):
+    monkeypatch.setattr("binary_cli.main.get_git_diff", lambda staged_only=False: None)
+    result = runner.invoke(app, ["review"])
+    assert result.exit_code == 0
+    assert "No git changes detected" in result.stdout
+
+
+def test_cli_review_with_diff(monkeypatch):
+    monkeypatch.setattr(
+        "binary_cli.main.get_git_diff",
+        lambda staged_only=False: "### Git Diff:\n+added code",
+    )
+
+    class FakeSession:
+        def __init__(self, provider, model):
+            pass
+
+        def send(self, prompt):
+            assert "+added code" in prompt
+            yield "Looks good, no issues."
+
+    monkeypatch.setattr("binary_cli.main.ChatSession", FakeSession)
+    monkeypatch.setattr("binary_cli.main.build_provider", lambda settings, p=None: None)
+
+    result = runner.invoke(app, ["review"])
+    assert result.exit_code == 0
+    assert "Looks good, no issues." in result.stdout
+
+
+def test_cli_commit_msg(monkeypatch):
+    monkeypatch.setattr(
+        "binary_cli.main.get_git_diff",
+        lambda staged_only=False: "### Git Diff:\n+def fix_bug(): pass",
+    )
+
+    class FakeSession:
+        def __init__(self, provider, model):
+            pass
+
+        def send(self, prompt):
+            yield "fix: resolve edge case in calculation"
+
+    monkeypatch.setattr("binary_cli.main.ChatSession", FakeSession)
+    monkeypatch.setattr("binary_cli.main.build_provider", lambda settings, p=None: None)
+
+    result = runner.invoke(app, ["commit-msg"])
+    assert result.exit_code == 0
+    assert "fix: resolve edge case in calculation" in result.stdout

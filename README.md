@@ -1,19 +1,17 @@
 # Binary CLI
 
-Binary CLI is a modular, terminal-based assistant for chatting with LLMs and, in later releases,
-helping developers understand and work with code.
+Binary CLI is a modular, terminal-based assistant for chatting with LLMs and helping developers
+understand and work with code directly from their terminal.
 
-## v0.1.0 scope
+## Features
 
-- Rich terminal interface
-- Google Gemini, OpenAI, and Ollama provider adapters
-- Interactive chat and one-shot `ask`
-- Streaming output
-- SQLite conversation history
-- Basic provider/model configuration via CLI or `.env`
-
-Agent execution, automatic file modification, and shell command execution are deliberately
-out of scope for v0.1.0.
+- **Multi-Provider Support**: Google Gemini, OpenAI, and local Ollama adapters
+- **Code & File Context**: Attach files (`-f / --file`) and Git diffs (`-d / --diff`) directly to queries
+- **Automated Code Review**: Dedicated `binary review` command to inspect working tree or staged changes
+- **Conventional Commit Generator**: `binary commit-msg` generates conventional commit messages automatically
+- **Interactive Chat & One-Shot Ask**: Real-time streaming output in your terminal
+- **SQLite Conversation History**: Automatically persists previous turns and supports history purging
+- **CLI & .env Configuration**: Inspect and configure API keys and providers with `binary config show` and `binary config set`
 
 ## Requirements
 
@@ -38,22 +36,44 @@ cp .env.example .env
 Select a provider via `.env` or using `binary config set`:
 
 ```bash
-binary config set BINARY_PROVIDER ollama
-# or
 binary config set BINARY_PROVIDER gemini
 binary config set GEMINI_API_KEY your_key_here
+# or for local Ollama:
+binary config set BINARY_PROVIDER ollama
 ```
 
 ## Commands
 
 ```bash
 binary --help
-binary chat [--provider gemini|openai|ollama] [--model <name>]
-binary ask "Explain recursion in Python" [--provider <name>] [--model <name>]
+binary chat [-f <file>] [-d] [--provider <name>] [--model <name>]
+binary ask "<prompt>" [-f <file>] [-d] [--provider <name>] [--model <name>]
+binary review [--staged] [--provider <name>] [--model <name>]
+binary commit-msg [--staged] [--provider <name>] [--model <name>]
 binary models [--provider <name>]
 binary config show
 binary config set <KEY> <VALUE>
 binary history [--limit 20] [--clear]
+```
+
+## Code Intelligence Examples
+
+### Ask questions with file context:
+```bash
+binary ask "Explain the authentication flow in this file" -f src/auth.py
+```
+
+### Review local code changes:
+```bash
+binary review
+# or review staged changes only:
+binary review --staged
+```
+
+### Generate commit messages:
+```bash
+git add src/
+binary commit-msg
 ```
 
 ## Providers
@@ -61,7 +81,7 @@ binary history [--limit 20] [--clear]
 ### Google Gemini
 
 Set `GEMINI_API_KEY` in `.env` (or via `binary config set GEMINI_API_KEY <key>`).
-Default model: `gemini-1.5-flash`.
+Default model: `gemini-2.5-flash`.
 
 ### Ollama (Local)
 
@@ -89,6 +109,7 @@ src/binary_cli/
     openai_provider.py
   core/
     chat.py
+    context.py
     history.py
   ui/
     terminal.py
@@ -97,5 +118,5 @@ tests/
 
 ## Safety
 
-Binary CLI v0.1.0 only sends prompts to the configured model and displays responses. It does not
-execute model-generated shell commands or modify project files.
+Binary CLI v0.2.0 only sends prompts and attached file text to the configured model and displays responses.
+It does not execute model-generated shell commands or modify project files without user consent.
