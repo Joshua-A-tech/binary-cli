@@ -3,6 +3,11 @@ import pytest
 from binary_cli.config import Settings, load_settings
 
 
+@pytest.fixture(autouse=True)
+def isolate_env(monkeypatch):
+    monkeypatch.setattr("binary_cli.config.load_dotenv", lambda: None)
+
+
 def test_settings_default_ollama(monkeypatch):
     monkeypatch.delenv("BINARY_PROVIDER", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
