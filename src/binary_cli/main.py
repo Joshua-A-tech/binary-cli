@@ -152,7 +152,7 @@ def models(
 def config_show():
     """Show non-secret configuration values."""
     try:
-        settings = load_settings()
+        settings = load_settings(validate_keys=False)
     except Exception as exc:
         console.print(f"[bold red]Configuration error:[/bold red] {exc}")
         raise typer.Exit(1)
@@ -160,9 +160,15 @@ def config_show():
     openai_status = "configured" if settings.openai_api_key else "not configured"
     gemini_status = "configured" if settings.gemini_api_key else "not configured"
 
+    active_provider_display = settings.provider
+    if (settings.provider == "openai" and not settings.openai_api_key) or (
+        settings.provider == "gemini" and not settings.gemini_api_key
+    ):
+        active_provider_display += " [yellow](API key missing)[/yellow]"
+
     console.print(
         Panel(
-            f"Active Provider: [cyan]{settings.provider}[/cyan]\n"
+            f"Active Provider: [cyan]{active_provider_display}[/cyan]\n"
             f"Active Model: [cyan]{settings.model}[/cyan]\n"
             f"Ollama URL: {settings.ollama_base_url}\n"
             f"OpenAI API key: {openai_status} (model: {settings.openai_model})\n"

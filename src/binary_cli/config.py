@@ -24,7 +24,7 @@ class Settings(BaseModel):
         return self.ollama_model
 
 
-def load_settings() -> Settings:
+def load_settings(validate_keys: bool = True) -> Settings:
     load_dotenv()
     values = {
         "provider": os.getenv("BINARY_PROVIDER", "ollama").lower(),
@@ -39,10 +39,11 @@ def load_settings() -> Settings:
     valid_providers = {"openai", "ollama", "gemini"}
     if settings.provider not in valid_providers:
         raise ValueError(f"BINARY_PROVIDER must be one of: {', '.join(sorted(valid_providers))}.")
-    if settings.provider == "openai" and not settings.openai_api_key:
-        raise ValueError("OPENAI_API_KEY is required when BINARY_PROVIDER=openai.")
-    if settings.provider == "gemini" and not settings.gemini_api_key:
-        raise ValueError("GEMINI_API_KEY is required when BINARY_PROVIDER=gemini.")
+    if validate_keys:
+        if settings.provider == "openai" and not settings.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is required when BINARY_PROVIDER=openai.")
+        if settings.provider == "gemini" and not settings.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY is required when BINARY_PROVIDER=gemini.")
     return settings
 
 
