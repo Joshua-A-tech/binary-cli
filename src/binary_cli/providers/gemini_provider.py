@@ -1,10 +1,15 @@
 import json
 import time
 from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import httpx
 
-from .base import LLMProvider, Message
+from .base import LLMProvider, Message, StepResponse, ToolCall
+
+if TYPE_CHECKING:
+    from ..tools.base import Tool
 
 DEFAULT_GEMINI_MODELS = [
     "gemini-2.5-flash",
@@ -39,7 +44,7 @@ class GeminiProvider(LLMProvider):
                     }
                 )
 
-        payload: dict = {"contents": contents}
+        payload: dict[str, Any] = {"contents": contents}
         if system_parts:
             payload["system_instruction"] = {"parts": system_parts}
 
@@ -78,6 +83,62 @@ class GeminiProvider(LLMProvider):
                     time.sleep(1.5 * (attempt + 1))
                     continue
                 raise
+
+    def chat_step(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        system_instruction: str | None = None,
+        tools: list["Tool"] | None = None,
+    ) -> StepResponse:
+        clean_model = model.removeprefix("models/")
+        url = f"{self.base_url}/v1beta/models/{clean_model}:generateContent"
+        params = {"key": self.api_key}
+
+        payload: dict[str, Any] = {"contents": messages}
+        if system_instruction:
+            payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+        if tools:
+            function_declarations = [tool.to_gemini_schema() for tool in tools]
+            payload["tools"] = [{"function_declarations": function_declarations}]
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = httpx.post(url, params=params, json=payload, timeout=60.0)
+                response.raise_for_status()
+                data = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                if (
+                    exc.response.status_code in {429, 500, 502, 503, 504}
+                    and attempt < max_retries - 1
+                ):
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise
+
+        content_parts = []
+        tool_calls: list[ToolCall] = []
+
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for part in parts:
+                if "text" in part:
+                    content_parts.append(part["text"])
+                if "functionCall" in part:
+                    fn_call = part["functionCall"]
+                    tool_calls.append(
+                        ToolCall(
+                            id=str(uuid4())[:8],
+                            name=fn_call.get("name", ""),
+                            args=fn_call.get("args", {}),
+                        )
+                    )
+
+        full_content = "\n".join(content_parts).strip() if content_parts else None
+        return StepResponse(content=full_content, tool_calls=tool_calls)
 
     def list_models(self) -> list[str]:
         try:

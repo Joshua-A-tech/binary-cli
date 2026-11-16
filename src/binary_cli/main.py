@@ -8,6 +8,7 @@ from rich.table import Table
 
 from . import __version__
 from .config import Settings, load_settings
+from .core.agent import AgentSession
 from .core.chat import ChatSession
 from .core.context import build_context_prompt, get_git_diff
 from .core.history import clear_history, recent_messages
@@ -18,7 +19,7 @@ from .ui.terminal import ask_prompt, banner, console, stream_to_terminal
 
 app = typer.Typer(
     name="binary",
-    help="Binary CLI — a modular LLM assistant for your terminal.",
+    help="Binary CLI — a modular, autonomous LLM assistant for your terminal.",
     no_args_is_help=False,
 )
 config_app = typer.Typer(help="Manage Binary CLI configuration.")
@@ -119,6 +120,40 @@ def chat(
             stream_to_terminal(session.send(send_prompt))
         except Exception as exc:
             console.print(f"\n[bold red]Request failed:[/bold red] {exc}")
+
+
+@app.command("do")
+def do_task(
+    task: str = typer.Argument(..., help="Autonomous goal or task for the agent to resolve."),
+    max_steps: int = typer.Option(15, "--max-steps", "-s", help="Maximum autonomous iterations."),
+    provider: str | None = typer.Option(
+        None, "--provider", "-p", help="Provider to use (openai, gemini, ollama)."
+    ),
+    model: str | None = typer.Option(None, "--model", "-m", help="Model name to use."),
+):
+    """Run an autonomous agent to achieve a goal by inspecting, editing, and executing code."""
+    try:
+        settings = load_settings()
+        active_provider_name = provider or settings.provider
+        active_model = resolve_model(settings, active_provider_name, model)
+        provider_instance = build_provider(settings, active_provider_name)
+    except Exception as exc:
+        console.print(f"[bold red]Configuration error:[/bold red] {exc}")
+        raise typer.Exit(1)
+
+    banner(__version__)
+    console.print(
+        f"[dim]Autonomous Agent Mode | Provider: {active_provider_name} | Model: {active_model}[/dim]\n"
+    )
+    agent = AgentSession(provider_instance, active_model)
+    try:
+        summary = agent.run(task, max_steps=max_steps)
+        console.print(
+            Panel(summary, title="[bold green]Goal Completed[/bold green]", border_style="green")
+        )
+    except Exception as exc:
+        console.print(f"\n[bold red]Agent execution failed:[/bold red] {exc}")
+        raise typer.Exit(1)
 
 
 @app.command()

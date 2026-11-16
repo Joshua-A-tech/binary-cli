@@ -5,6 +5,7 @@ understand and work with code directly from their terminal.
 
 ## Features
 
+- **Autonomous Agent Mode (`binary do`)**: ReAct agent that autonomously inspects code, edits files, and executes shell commands to achieve goals
 - **Multi-Provider Support**: Google Gemini, OpenAI, and local Ollama adapters
 - **Code & File Context**: Attach files (`-f / --file`) and Git diffs (`-d / --diff`) directly to queries
 - **Automated Code Review**: Dedicated `binary review` command to inspect working tree or staged changes
@@ -46,6 +47,7 @@ binary config set BINARY_PROVIDER ollama
 
 ```bash
 binary --help
+binary do "<task>" [--max-steps 15] [--provider <name>] [--model <name>]
 binary chat [-f <file>] [-d] [--provider <name>] [--model <name>]
 binary ask "<prompt>" [-f <file>] [-d] [--provider <name>] [--model <name>]
 binary review [--staged] [--provider <name>] [--model <name>]
@@ -54,6 +56,15 @@ binary models [--provider <name>]
 binary config show
 binary config set <KEY> <VALUE>
 binary history [--limit 20] [--clear]
+```
+
+## Autonomous Agent Examples
+
+Execute developer tasks autonomously across your codebase:
+
+```bash
+binary do "Inspect tests/ and run pytest to check if all tests pass"
+binary do "Create a new utility script fib.py that prints the first 20 fibonacci numbers, and test it"
 ```
 
 ## Code Intelligence Examples
